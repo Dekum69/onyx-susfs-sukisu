@@ -73,6 +73,51 @@ prepare_kernel() {
     install -m 0644 "$ROOT/patches/susfs.c" "$KERNEL_SRC/fs/susfs.c"
     install -m 0644 "$ROOT/patches/susfs.h" "$KERNEL_SRC/include/linux/susfs.h"
     install -m 0644 "$ROOT/patches/susfs_def.h" "$KERNEL_SRC/include/linux/susfs_def.h"
+
+    # The SUSFS patch wires fs/exec.c into the legacy KernelSU preinit API
+    # (ksu_setup_preinit_file / ksu_preinit_handle_post_execveat).  The pinned
+    # SukiSU-Ultra moved preinit into hook/syscall_event_bridge.c and no longer
+    # provides those symbols, so keep the legacy call sites inert.
+    python3 - "$KERNEL_SRC/fs/exec.c" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+pattern = re.compile(
+    r"#ifndef KSU_NO_PREINIT\r?\n"
+    r"extern int ksu_setup_preinit_file\(.*?"
+    r"#endif // #ifndef KSU_NO_PREINIT\r?\n",
+    re.S,
+)
+replacement = """/*
+ * The pinned SukiSU-Ultra performs the preinit swap from its syscall bridge
+ * (hook/syscall_event_bridge.c), so the legacy SUSFS preinit hooks have no
+ * provider.  Keep the call sites inert instead of breaking the link.
+ */
+static inline int ksu_setup_preinit_file(struct filename **filename_ptr,
+					 struct user_arg_ptr *argv_user)
+{
+	/* Negative means "no preinit session"; SukiSU handles this elsewhere. */
+	return -1;
+}
+static inline int ksu_preinit_handle_post_execveat(int *fd,
+						   struct filename **filename_ptr,
+						   void *argv_user, void *envp_user,
+						   int *flags, int *retval,
+						   int *preinit_fd)
+{
+	return 0;
+}
+"""
+text, count = pattern.subn(replacement, text, count=1)
+if count != 1:
+    raise SystemExit("could not rewrite the legacy preinit hooks in fs/exec.c")
+path.write_text(text)
+print("Replaced legacy SUSFS preinit hooks with inert stubs")
+PY
+
     touch "$KERNEL_SRC/.susfs-applied"
   fi
 }
