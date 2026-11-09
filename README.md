@@ -113,6 +113,71 @@ fastboot flash boot stock-boot.img
 
 or re-flash the `boot.img` from the matching HyperOS fastboot package.
 
+## When HyperOS updates the kernel
+
+The kernel is tied to three things: the exact GKI source commit, the stock
+kernel config, and the exact release string (which becomes the module
+vermagic). A firmware update can change any of them, so treat every HyperOS
+update as a re-base:
+
+1. Read the new release string, either from the running device:
+
+   ```sh
+   adb shell uname -r
+   ```
+
+   or from the new firmware's `boot.img`:
+
+   ```sh
+   python3 tools/bootimg.py extract-kernel new-boot.img new-Image
+   strings new-Image | grep -m1 'Linux version'
+   ```
+
+2. Compare it to `STOCK_RELEASE` in `scripts/build.sh`:
+
+   * **Identical** - same source, config and vermagic. Nothing to rebuild.
+     Restore the stock boot image before the OTA, then re-flash this kernel
+     afterwards.
+   * **Only `-ab<number>` changed** - same source and config, new build
+     number. Update `STOCK_RELEASE` and rebuild.
+   * **`6.6.x` changed** - the GKI source moved. The `g<hash>` part of the
+     release is the AOSP `kernel_common` commit; resolve it with
+     `git -C kernel_common rev-parse <hash>`, update `KERNEL_COMMIT` and
+     extract the new config (step 3).
+   * **New major/minor or Android GKI branch** (for example
+     `android16-6.12`) - this is a port, not a re-base: new source branch,
+     new SUSFS branch (`gki-android16-6.12`), possibly a new boot header
+     version. Do not reuse any of the 6.6-specific patches without checking
+     they apply.
+
+3. Extract the stock config from the new kernel and point
+   `configure_kernel()` in `scripts/build.sh` at it:
+
+   ```sh
+   python3 tools/bootimg.py extract-config new-Image configs/onyx-<version>-stock.config
+   ```
+
+4. Update `sources.lock.json` and the table at the top of this README, run
+   the `build` workflow (`workflow_dispatch`) and download the artifacts.
+
+5. Repack the new firmware's own `boot.img` - never reuse an older one, since
+   header fields, cmdline and kernel offsets can change:
+
+   ```sh
+   python3 tools/bootimg.py repack \
+     --stock new-boot.img --kernel artifacts/Image --output boot-susfs-new.img
+   ```
+
+6. Restore the stock boot image before taking the OTA, then flash the new
+   image. Flashing an old kernel onto newer firmware is not supported: the
+   vendor modules in `vendor_dlkm` are rebuilt with the new release string and
+   the loader rejects a vermagic mismatch, which breaks Wi-Fi, camera and
+   other vendor services.
+
+If a patch stops applying after a re-base, re-pin SUSFS to the matching
+`gki-android15-6.6` revision and refresh `patches/sukisu-susfs.patch` from the
+Onyx-Wild-Performance repository instead of forcing the old patch.
+
 ## Notes and limitations
 
 * This kernel targets HyperOS 3 EU on `onyx` with the 6.6.118 GKI base. A
