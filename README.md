@@ -137,6 +137,11 @@ python scripts/update-base.py --boot new-boot.img --push --wait --repack
 python scripts/update-base.py --boot new-boot.img --push --wait --repack --release v1.1.0
 ```
 
+On Windows, drag the new `boot.img` onto `scripts\update-base.cmd`: it shows
+the plan, asks for confirmation, then runs the full pipeline (commit, CI
+build, download, repack). Extra options are forwarded, for example
+`update-base.cmd new-boot.img --release v1.1.0`.
+
 What it does:
 
 * reads the release string from the boot image's kernel and resolves the
