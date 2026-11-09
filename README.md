@@ -23,7 +23,10 @@ vendor-module interface compatible with the signed HyperOS vendor modules.
 
 * `CONFIG_KSU=y` and `CONFIG_KSU_SUSFS=y` (plus the default SUSFS features).
 * The SUSFS kernel patch from the `gki-android15-6.6` branch, applied with
-  fuzz because of a single context drift in `fs/proc/task_mmu.c`.
+  fuzz because of a single context drift in `fs/proc/task_mmu.c`. The patch's
+  legacy preinit hooks in `fs/exec.c` are replaced with inert stubs: pinned
+  SukiSU-Ultra performs the preinit swap from its own syscall bridge
+  (`hook/syscall_event_bridge.c`) and no longer exports those symbols.
 * `CONFIG_MODULE_SIG_PROTECT=y` is kept, but the vendor protected-exports list
   is removed. This makes the GKI module protection a no-op so the signed
   HyperOS vendor modules can load.
