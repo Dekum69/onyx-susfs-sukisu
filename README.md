@@ -118,7 +118,47 @@ or re-flash the `boot.img` from the matching HyperOS fastboot package.
 The kernel is tied to three things: the exact GKI source commit, the stock
 kernel config, and the exact release string (which becomes the module
 vermagic). A firmware update can change any of them, so treat every HyperOS
-update as a re-base:
+update as a re-base.
+
+### Automated re-base
+
+`scripts/update-base.py` does the whole loop from one boot image. It needs
+Python 3 and an authenticated `gh`; the kernel itself is still compiled on
+GitHub Actions, so no local Linux toolchain is required:
+
+```sh
+# inspect first: extract the kernel/config, resolve the GKI commit, show the plan
+python scripts/update-base.py --boot new-boot.img
+
+# full pipeline: commit/push, wait for the build, download and repack
+python scripts/update-base.py --boot new-boot.img --push --wait --repack
+
+# ...and publish it as a release
+python scripts/update-base.py --boot new-boot.img --push --wait --repack --release v1.1.0
+```
+
+What it does:
+
+* reads the release string from the boot image's kernel and resolves the
+  matching `kernel_common` commit, verifying that the commit's Makefile really
+  is that Linux version;
+* extracts the embedded stock config to
+  `configs/onyx-<version>-<ab-build>.config`;
+* updates `scripts/build.sh` (`KERNEL_COMMIT`, `STOCK_RELEASE`, config path),
+  `sources.lock.json` and the table at the top of this README;
+* with `--push` commits those files and pushes, then `--wait` follows the
+  workflow and downloads the artifacts; `--repack` writes
+  `artifacts/boot-susfs-onyx.img` from the new stock image;
+* refuses to run if the firmware moved to a different kernel series (a port,
+  not a re-base) unless `--force` is given.
+
+If the release string is unchanged it skips the rebuild and only repacks the
+given boot image with the existing `artifacts/Image`.
+
+The script cannot fix a patch that no longer applies. If the build stops in
+`apply_patch`, re-pin SUSFS / refresh the SukiSU compatibility patch as
+described below, then re-run the build. The individual steps are listed here
+in case anything needs to be done by hand:
 
 1. Read the new release string, either from the running device:
 
