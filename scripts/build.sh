@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Build a SukiSU-Ultra + SUSFS enabled GKI kernel for the POCO F7 (onyx, SM8735).
+#
+# The script is intentionally self-contained so it runs the same way on a
+# GitHub Actions Ubuntu 24.04 runner and on any Debian/Ubuntu host.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WORK=${WORK:-"$ROOT/work"}
+ARTIFACTS=${ARTIFACTS:-"$ROOT/artifacts"}
+KERNEL_SRC=${KERNEL_SRC:-"$WORK/kernel_common"}
+SUKISU_SRC=${SUKISU_SRC:-"$WORK/kernelsu"}
+OUT=${OUT:-"$WORK/out"}
+AK3_SRC=${AK3_SRC:-"$WORK/AnyKernel3"}
+
+KERNEL_REPO=${KERNEL_REPO:-aosp-mirror/kernel_common}
+KERNEL_COMMIT=${KERNEL_COMMIT:-e56cf6b09cca2151bcee244b3d334fb68685ff57}
+SUKISU_COMMIT=${SUKISU_COMMIT:-7e4784ee1282abded0dc3bace873a600ef6d5d3f}
+AK3_COMMIT=${AK3_COMMIT:-e1e9dce98430c5c6f231f7094a8c7f4ecaf50948}
+
+# Exact release string of the stock HyperOS 3 kernel.  Matching it keeps
+# vermagic identical, which is what the signed vendor modules check.
+STOCK_RELEASE="6.6.118-android15-8-ge56cf6b09cca-ab15511674-4k"
+
+JOBS=${JOBS:-$(nproc)}
+LLVM_SUFFIX=${LLVM_SUFFIX:-18}
+
+log() { printf '\n[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+
+install_deps() {
+  log "Installing build dependencies"
+  sudo apt-get update -qq
+  sudo apt-get install -y --no-install-recommends \
+    bc bison build-essential cpio curl device-tree-compiler dwarves \
+    flex git kmod libelf-dev libssl-dev lz4 python3 rsync unzip zip \
+    zstd clang-"$LLVM_SUFFIX" lld-"$LLVM_SUFFIX" llvm-"$LLVM_SUFFIX"
+}
+
+fetch_tarball() {
+  # fetch_tarball <owner/repo> <commit> <dest>
+  local repo=$1 commit=$2 dest=$3 url
+  url="https://github.com/${repo}/archive/${commit}.tar.gz"
+  log "Fetching ${repo}@${commit:0:12}"
+  mkdir -p "$dest"
+  curl -fsSL --retry 5 --retry-delay 5 "$url" |
+    tar -xz --strip-components=1 -C "$dest"
+}
+
+apply_patch() {
+  # apply_patch <patch-file> <directory> [extra patch args...]
+  local patch_file=$1 dir=$2
+  shift 2
+  log "Applying $(basename "$patch_file")"
+  (
+    cd "$dir"
+    patch -p1 --batch --forward --fuzz=3 "$@" <"$patch_file"
+  )
+  if find "$dir" -name '*.rej' -print -quit | grep -q .; then
+    echo "Patch left rejects:" >&2
+    find "$dir" -name '*.rej' -print >&2
+    exit 1
+  fi
+}
+
+prepare_kernel() {
+  if [ ! -d "$KERNEL_SRC" ]; then
+    fetch_tarball "$KERNEL_REPO" "$KERNEL_COMMIT" "$KERNEL_SRC"
+  fi
+  [ -f "$KERNEL_SRC/Makefile" ] || { echo "Kernel source missing" >&2; exit 1; }
+
+  if [ ! -f "$KERNEL_SRC/.susfs-applied" ]; then
+    apply_patch "$ROOT/patches/susfs-50.patch" "$KERNEL_SRC"
+    install -m 0644 "$ROOT/patches/susfs.c" "$KERNEL_SRC/fs/susfs.c"
+    install -m 0644 "$ROOT/patches/susfs.h" "$KERNEL_SRC/include/linux/susfs.h"
+    install -m 0644 "$ROOT/patches/susfs_def.h" "$KERNEL_SRC/include/linux/susfs_def.h"
+    touch "$KERNEL_SRC/.susfs-applied"
+  fi
+}
+
+prepare_sukisu() {
+  if [ ! -d "$SUKISU_SRC" ]; then
+    fetch_tarball SukiSU-Ultra/SukiSU-Ultra "$SUKISU_COMMIT" "$SUKISU_SRC"
+  fi
+  if [ ! -f "$SUKISU_SRC/.patch-applied" ]; then
+    apply_patch "$ROOT/patches/sukisu-susfs.patch" "$SUKISU_SRC"
+    touch "$SUKISU_SRC/.patch-applied"
+  fi
+}
+
+integrate_sukisu() {
+  log "Integrating SukiSU into the kernel tree"
+  ln -sfn "$(realpath --relative-to="$KERNEL_SRC/drivers" "$SUKISU_SRC/kernel")" \
+    "$KERNEL_SRC/drivers/kernelsu"
+
+  if ! grep -q 'drivers/kernelsu' "$KERNEL_SRC/drivers/Makefile"; then
+    printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >>"$KERNEL_SRC/drivers/Makefile"
+  fi
+  if ! grep -q 'drivers/kernelsu/Kconfig' "$KERNEL_SRC/drivers/Kconfig"; then
+    printf '\nsource "drivers/kernelsu/Kconfig"\n' >>"$KERNEL_SRC/drivers/Kconfig"
+  fi
+}
+
+configure_kernel() {
+  log "Configuring kernel"
+  mkdir -p "$OUT"
+  cp "$ROOT/configs/onyx-6.6.118-stock.config" "$OUT/.config"
+
+  # Keep the stock feature set.  Only the pieces that cannot work outside the
+  # vendor build are changed:
+  #  - WERROR: a newer host clang warns about things the vendor clang did not.
+  #  - TRIM_UNUSED_KSYMS: the vendor whitelist (abi_symbollist.raw) is not part
+  #    of the public source, and trimming would hide symbols vendor modules use.
+  #  - LOCALVERSION_AUTO: the release is pinned via scripts/setlocalversion.
+  "$KERNEL_SRC/scripts/config" --file "$OUT/.config" \
+    --disable LOCALVERSION_AUTO \
+    --disable WERROR \
+    --disable TRIM_UNUSED_KSYMS \
+    --disable UNUSED_KSYMS_WHITELIST \
+    --disable MODULE_SIG_FORCE \
+    --enable MODULE_SIG_PROTECT \
+    --enable LTO_NONE \
+    --disable LTO_CLANG_THIN \
+    --disable LTO_CLANG_FULL \
+    --enable KSU \
+    --enable KSU_SUSFS \
+    --disable KSU_DEBUG \
+    --disable KPM
+
+  # SukiSU ships several SUSFS sub-options with "default y"; olddefconfig picks
+  # them up from drivers/kernelsu/Kconfig.
+
+  # The vendor protected-exports list triggers KMI enforcement that would stop
+  # stock HyperOS vendor modules from loading.  Removing it turns the check
+  # into a no-op (see kernel/module/gki_module.c).
+  rm -f "$KERNEL_SRC/android/abi_gki_protected_exports_aarch64" \
+        "$KERNEL_SRC/android/abi_gki_protected_exports_x86_64"
+
+  # Stock vendor modules were linked against the stock genksyms CRCs.  Even
+  # though we build the same source with the same config, a different clang can
+  # change a CRC.  Accept mismatches like the CLO/GKI vendor kernels do.
+  python3 - "$KERNEL_SRC/kernel/module/version.c" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = (
+    'bad_version:\n'
+    '\tpr_warn("%s: disagrees about version of symbol %s\\n", info->name, symname);\n'
+    '\treturn 0;'
+)
+new = (
+    'bad_version:\n'
+    '\tpr_warn("%s: disagrees about version of symbol %s\\n", info->name, symname);\n'
+    '\treturn 1;'
+)
+if old not in text:
+    if new in text:
+        print("CRC bypass already present")
+    else:
+        raise SystemExit("could not find bad_version block in version.c")
+else:
+    path.write_text(text.replace(old, new, 1))
+    print("CRC mismatch bypass applied")
+PY
+
+  # Pin the release string.  filechk_kernel.release executes this script and
+  # uses whatever it prints, so it must print the complete release.
+  cat >"$KERNEL_SRC/scripts/setlocalversion" <<EOF
+#!/bin/sh
+# Pinned to the stock HyperOS 3 release; see scripts/build.sh.
+echo "$STOCK_RELEASE"
+EOF
+  chmod +x "$KERNEL_SRC/scripts/setlocalversion"
+
+  make -C "$KERNEL_SRC" O="$OUT" ARCH=arm64 LLVM=-"$LLVM_SUFFIX" olddefconfig
+}
+
+build_kernel() {
+  log "Building kernel (${JOBS} jobs)"
+  # Match the stock banner as closely as possible.
+  : "${KBUILD_BUILD_USER:=kleaf}"
+  : "${KBUILD_BUILD_HOST:=build-host}"
+  : "${KBUILD_BUILD_VERSION:=1}"
+  : "${KBUILD_BUILD_TIMESTAMP:=Thu May 28 07:48:46 UTC 2026}"
+  export KBUILD_BUILD_USER KBUILD_BUILD_HOST KBUILD_BUILD_VERSION KBUILD_BUILD_TIMESTAMP
+
+  make -C "$KERNEL_SRC" O="$OUT" ARCH=arm64 LLVM=-"$LLVM_SUFFIX" \
+    -j"$JOBS" Image Image.gz 2>&1 | tee "$ARTIFACTS/build.log"
+}
+
+verify_kernel() {
+  local release
+  release=$(make -s -C "$KERNEL_SRC" O="$OUT" ARCH=arm64 kernelrelease)
+  log "kernelrelease: $release"
+  [ "$release" = "$STOCK_RELEASE" ] || {
+    echo "Release mismatch: expected $STOCK_RELEASE, got $release" >&2
+    exit 1
+  }
+  [ -f "$OUT/arch/arm64/boot/Image" ] || { echo "Image missing" >&2; exit 1; }
+
+  grep -q '^CONFIG_KSU=y$' "$OUT/.config" || { echo "CONFIG_KSU not enabled" >&2; exit 1; }
+  grep -q '^CONFIG_KSU_SUSFS=y$' "$OUT/.config" || { echo "CONFIG_KSU_SUSFS not enabled" >&2; exit 1; }
+
+  if strings "$OUT/arch/arm64/boot/Image" | grep -q "$STOCK_RELEASE"; then
+    log "Image contains the pinned release string"
+  else
+    echo "Release string not found in Image" >&2
+    exit 1
+  fi
+}
+
+package_anykernel() {
+  log "Packaging AnyKernel3"
+  if [ ! -d "$AK3_SRC" ]; then
+    fetch_tarball WildKernels/AnyKernel3 "$AK3_COMMIT" "$AK3_SRC"
+  fi
+  cp "$ROOT/anykernel/anykernel.sh" "$ROOT/anykernel/onyx-boot.sh" "$AK3_SRC/"
+  cp "$OUT/arch/arm64/boot/Image" "$AK3_SRC/Image"
+
+  local zip="$ARTIFACTS/onyx-susfs-sukisu-anykernel3.zip"
+  rm -f "$zip"
+  (
+    cd "$AK3_SRC"
+    zip -r9 "$zip" . -x '.git/*' -x '*/.git/*'
+  )
+  log "Created $zip"
+}
+
+main() {
+  mkdir -p "$ARTIFACTS"
+  if [ "${INSTALL_DEPS:-0}" = "1" ]; then
+    install_deps
+  fi
+
+  prepare_kernel
+  prepare_sukisu
+  integrate_sukisu
+  configure_kernel
+  build_kernel
+  verify_kernel
+
+  cp "$OUT/arch/arm64/boot/Image" "$ARTIFACTS/Image"
+  cp "$OUT/arch/arm64/boot/Image.gz" "$ARTIFACTS/Image.gz"
+  cp "$OUT/.config" "$ARTIFACTS/onyx-susfs-sukisu.config"
+  cp "$OUT/include/config/kernel.release" "$ARTIFACTS/kernel.release"
+
+  if [ "${SKIP_ANYKEY:-0}" != "1" ]; then
+    package_anykernel
+  fi
+
+  log "Artifacts:"
+  ls -lh "$ARTIFACTS"
+}
+
+main "$@"

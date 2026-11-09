@@ -1,0 +1,73 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost \
+            /usr/lib/google-cloud-sdk
+          sudo apt-get clean
+          df -h /
+
+      - name: Add swap
+        run: |
+          sudo fallocate -l 8G /swapfile || \
+            sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential cpio curl device-tree-compiler dwarves \
+            flex git kmod libelf-dev libssl-dev lz4 python3 rsync unzip zip \
+            zstd clang-18 lld-18 llvm-18
+
+      - name: Build kernel
+        run: bash scripts/build.sh
+
+      - name: Upload artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onyx-susfs-sukisu
+          if-no-files-found: error
+          path: |
+            artifacts/Image
+            artifacts/Image.gz
+            artifacts/onyx-susfs-sukisu-anykernel3.zip
+            artifacts/onyx-susfs-sukisu.config
+            artifacts/kernel.release
+            artifacts/build.log
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          if-no-files-found: ignore
+          path: artifacts/build.log
