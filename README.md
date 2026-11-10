@@ -19,6 +19,19 @@ vendor-module interface compatible with the signed HyperOS vendor modules.
 | Hiding | SUSFS (`c7f670f57b7d`) |
 | Toolchain | Ubuntu 24.04 clang/lld/LLVM 18 |
 
+## Quick start
+
+* **Install this kernel** - flash `onyx-susfs-sukisu-anykernel3.zip` from the
+  SukiSU manager's kernel-flash screen or a custom recovery. Do not flash a
+  repacked `boot.img`; see [Flashing](#flashing).
+* **Update after a HyperOS firmware change** - drag the new firmware's
+  `boot.img` onto `scripts\update-base.cmd`, or run
+  `python scripts/update-base.py --boot new-boot.img --push --wait`. It
+  updates the pins, runs the GitHub Actions build and downloads the AnyKernel3
+  package; see [Automated re-base](#automated-re-base).
+* **Just inspect a boot image** - `python scripts/update-base.py --boot boot.img
+  --dry-run` changes nothing and prints what it detected.
+
 ## What is changed compared to stock
 
 * `CONFIG_KSU=y` and `CONFIG_KSU_SUSFS=y` (plus the default SUSFS features).
