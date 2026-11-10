@@ -1,7 +1,8 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## Based on osm0sis AnyKernel3 and WildKernels GKI installer.
+## The "@...@" tokens are replaced by scripts/build.sh for each variant.
 properties() { '
-kernel.string=Onyx Wild Performance (experimental)
+kernel.string=@KERNEL_STRING@
 do.devicecheck=1
 do.modules=0
 do.systemless=0
@@ -27,7 +28,9 @@ patch_vbmeta_flag=auto
 no_magisk_check=1
 . tools/ak3-core.sh
 
-ui_print "Onyx Wild Performance: experimental device-validation build"
+ui_print "@KERNEL_STRING@"
+ui_print "Variant: @VARIANT@"
+ui_print "@VARIANT_NOTE@"
 ui_print "Module symbol CRC mismatch bypass enabled (gki-clo behavior)"
 ui_print "Preserving installed ROM ramdisk, bootconfig and device trees"
 split_boot

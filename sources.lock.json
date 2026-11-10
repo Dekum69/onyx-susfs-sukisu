@@ -11,18 +11,79 @@
     "commit": "e56cf6b09cca2151bcee244b3d334fb68685ff57",
     "version": "6.6.118",
     "release": "6.6.118-android15-8-ge56cf6b09cca-ab15511674-4k",
+    "config": "configs/onyx-6.6.118-stock.config",
     "why": "Exact AOSP GKI commit from the stock kernel version string. Building the same source with the extracted stock config keeps vermagic and vendor module ABI compatible."
   },
+  "variants": [
+    {
+      "name": "sukisu-susfs",
+      "backend": "sukisu",
+      "susfs": "built-in",
+      "package": "onyx-sukisu-susfs-anykernel3.zip"
+    },
+    {
+      "name": "sukisu-resusfs",
+      "backend": "sukisu",
+      "susfs": "none (ReSuSFS module)",
+      "package": "onyx-sukisu-resusfs-anykernel3.zip"
+    },
+    {
+      "name": "kernelsu-susfs",
+      "backend": "kernelsu",
+      "susfs": "built-in",
+      "package": "onyx-kernelsu-susfs-anykernel3.zip"
+    },
+    {
+      "name": "kernelsu-resusfs",
+      "backend": "kernelsu",
+      "susfs": "none (ReSuSFS module)",
+      "package": "onyx-kernelsu-resusfs-anykernel3.zip"
+    },
+    {
+      "name": "ksunext-susfs",
+      "backend": "ksunext",
+      "susfs": "guard LKM (KernelSU-Next manager)",
+      "package": "onyx-ksunext-susfs-anykernel3.zip"
+    },
+    {
+      "name": "ksunext-resusfs",
+      "backend": "ksunext",
+      "susfs": "guard LKM (ReSuSFS module)",
+      "package": "onyx-ksunext-resusfs-anykernel3.zip"
+    }
+  ],
   "sukisu": {
     "repo": "https://github.com/SukiSU-Ultra/SukiSU-Ultra",
     "commit": "7e4784ee1282abded0dc3bace873a600ef6d5d3f",
+    "version": "41143 (manager v4.3.0-r2 / 41150)",
+    "patch": "patches/sukisu-susfs.patch",
     "version_note": "Pinned to the revision that the reviewed SukiSU+SUSFS compatibility patch applies to cleanly."
+  },
+  "kernelsu": {
+    "repo": "https://github.com/tiann/KernelSU",
+    "commit": "28db74f6f4692e97006ce9ebd8b19b9cc614b5b7",
+    "version": "official KernelSU main after v3.3.1 (manager 32680 or newer)",
+    "patch": "patches/kernelsu-susfs.patch",
+    "version_note": "The newest v3.3.1 tag commit rejects the SUSFS KernelSU patch; this commit applies it cleanly. KSU_VERSION comes from the git history, so the source is cloned, not downloaded as a tarball."
+  },
+  "ksunext": {
+    "repo": "https://github.com/KernelSU-Next/KernelSU-Next",
+    "commit": "4c706b5938665866ebe16944a481a7b91e3396af",
+    "tag": "v3.4.2",
+    "version": "33355",
+    "patch": "none - KernelSU-Next ships SUSFS as a guard LKM (kernel/susfs), there is no CONFIG_KSU_SUSFS"
   },
   "susfs": {
     "repo": "https://gitlab.com/simonpunk/susfs4ksu",
     "branch": "gki-android15-6.6",
     "commit": "c7f670f57b7d43d75066b6657f8aee9cdf580d96",
-    "version": "SUSFS v2.x (priority-uid-filter build)"
+    "version": "SUSFS v2.3.0 (priority-uid-filter build)"
+  },
+  "resusfs": {
+    "repo": "https://github.com/ahmed-alnassif/ReSuSFS",
+    "version": "v26.10.23",
+    "asset": "https://github.com/ahmed-alnassif/ReSuSFS/releases/download/v26.10.23/ReSuSFS.zip",
+    "note": "ReSuSFS is a KernelSU module, not a kernel patch. It uses a built-in SUSFS or loads the SUSFS LKM (susfs_guard_lkm.ko from inforcqb/susfs4ksu-lkm)."
   },
   "anykernel": {
     "repo": "https://github.com/WildKernels/AnyKernel3",
@@ -30,7 +91,8 @@
   },
   "patches": {
     "sukisu-susfs.patch": "https://github.com/Henry-Hilton/Onyx-Wild-Performance/blob/main/patches/sukisu.patch",
+    "kernelsu-susfs.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/c7f670f57b7d43d75066b6657f8aee9cdf580d96/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch",
     "susfs-50.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/c7f670f57b7d43d75066b6657f8aee9cdf580d96/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch",
-    "credit": "SUSFS by simonpunk; SukiSU-Ultra by the SukiSU team; compatibility patch reviewed by Henry-Hilton (Onyx Wild Performance)."
+    "credit": "SUSFS by simonpunk; SukiSU-Ultra by the SukiSU team; KernelSU by tiann; KernelSU-Next by the KernelSU-Next team; ReSuSFS by ahmed-alnassif; SukiSU/SUSFS compatibility patch reviewed by Henry-Hilton (Onyx Wild Performance)."
   }
 }

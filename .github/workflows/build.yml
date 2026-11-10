@@ -11,8 +11,31 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.variant }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: sukisu-susfs
+            backend: sukisu
+            mode: builtin
+          - variant: sukisu-resusfs
+            backend: sukisu
+            mode: none
+          - variant: kernelsu-susfs
+            backend: kernelsu
+            mode: builtin
+          - variant: kernelsu-resusfs
+            backend: kernelsu
+            mode: none
+          - variant: ksunext-susfs
+            backend: ksunext
+            mode: builtin
+          - variant: ksunext-resusfs
+            backend: ksunext
+            mode: none
 
     steps:
       - name: Check out sources
@@ -50,25 +73,22 @@ jobs:
 
       - name: Build kernel
         run: bash scripts/build.sh
+        env:
+          ROOT_BACKEND: ${{ matrix.backend }}
+          SUSFS_MODE: ${{ matrix.mode }}
 
       - name: Upload artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: onyx-susfs-sukisu
+          name: onyx-${{ matrix.variant }}
           if-no-files-found: error
-          path: |
-            artifacts/Image
-            artifacts/Image.gz
-            artifacts/onyx-susfs-sukisu-anykernel3.zip
-            artifacts/onyx-susfs-sukisu.config
-            artifacts/kernel.release
-            artifacts/build.log
+          path: artifacts/${{ matrix.variant }}/
 
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
+          name: build-log-${{ matrix.variant }}
           if-no-files-found: ignore
-          path: artifacts/build.log
+          path: artifacts/${{ matrix.variant }}/build.log

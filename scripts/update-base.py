@@ -11,12 +11,12 @@ new firmware, all three may change.  This script automates the whole loop:
      README.md;
   4. optionally commit/push (which triggers the GitHub Actions build), wait
      for it and download the artifacts;
-  5. optionally publish the AnyKernel3 package as a GitHub release.
+  5. optionally publish the six AnyKernel3 packages as a GitHub release.
 
-Only the AnyKernel3 zip is produced for flashing.  A locally repacked boot.img
-cannot reproduce the stock AVB metadata and HyperOS may reject it, so this
-script never builds one.  The AnyKernel3 installer patches the on-device boot
-image and preserves its layout.
+Only the AnyKernel3 zips are produced for flashing.  A locally repacked
+boot.img cannot reproduce the stock AVB metadata and HyperOS may reject it, so
+this script never builds one.  The AnyKernel3 installer patches the on-device
+boot image and preserves its layout.
 
 Typical use, after downloading the new firmware's boot.img:
 
@@ -26,7 +26,7 @@ Typical use, after downloading the new firmware's boot.img:
     python scripts/update-base.py --boot new-boot.img --push --wait --release v1.1.0
 
 If the release string is unchanged (same kernel base, new firmware build),
-the script skips the rebuild and points at the existing AnyKernel3 package.
+the script skips the rebuild and points at the existing AnyKernel3 packages.
 
 Only Python 3 and the GitHub CLI (gh) are needed on the local machine; the
 kernel itself is compiled on GitHub Actions.
@@ -57,8 +57,24 @@ WORK = ROOT / "work"
 GKI_REPO = "aosp-mirror/kernel_common"
 GKI_BRANCH = "android15-6.6"
 WORKFLOW = "build.yml"
-ARTIFACT_NAME = "onyx-susfs-sukisu"
-AK3_ASSET = "onyx-susfs-sukisu-anykernel3.zip"
+
+# One GitHub Actions matrix job and one AnyKernel3 zip per variant.
+VARIANTS = (
+    "sukisu-susfs",
+    "sukisu-resusfs",
+    "kernelsu-susfs",
+    "kernelsu-resusfs",
+    "ksunext-susfs",
+    "ksunext-resusfs",
+)
+
+
+def artifact_name(variant: str) -> str:
+    return f"onyx-{variant}"
+
+
+def zip_name(variant: str) -> str:
+    return f"onyx-{variant}-anykernel3.zip"
 
 RELEASE_RE = re.compile(
     r"^(?P<version>\d+\.\d+\.\d+)"
@@ -311,19 +327,34 @@ def latest_run_for(commit: str) -> int:
 def download_artifacts(run_id: int, dest: Path) -> None:
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True, exist_ok=True)
-    run(["gh", "run", "download", str(run_id), "--name", ARTIFACT_NAME, "--dir", str(dest)])
-    for name in ("Image", "Image.gz", AK3_ASSET, "onyx-susfs-sukisu.config",
-                 "kernel.release", "build.log"):
-        src = dest / name
-        if src.exists():
-            shutil.copy2(src, ARTIFACTS / name)
-    if not (ARTIFACTS / AK3_ASSET).exists():
-        die(f"artifact download did not produce {ARTIFACTS / AK3_ASSET}")
-    log(f"AnyKernel3 package ready: {ARTIFACTS / AK3_ASSET}")
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+
+    for variant in VARIANTS:
+        target = dest / variant
+        target.mkdir(parents=True, exist_ok=True)
+        run(["gh", "run", "download", str(run_id),
+             "--name", artifact_name(variant), "--dir", str(target)])
+
+        package = target / zip_name(variant)
+        if not package.exists():
+            die(f"artifact download did not produce {package}")
+
+        shutil.copy2(package, ARTIFACTS / package.name)
+        config = target / f"{variant}.config"
+        if config.exists():
+            shutil.copy2(config, ARTIFACTS / config.name)
+
+    log("AnyKernel3 packages ready:")
+    for variant in VARIANTS:
+        log(f"  {ARTIFACTS / zip_name(variant)}")
 
 
 def release_notes(release: str, parsed: dict[str, str | None]) -> str:
-    return f"""SukiSU-Ultra + SUSFS kernel for the **POCO F7 / Redmi Turbo 4 Pro** (`onyx`), built for the HyperOS firmware whose stock kernel is:
+    rows = "\n".join(
+        f"| `{zip_name(variant)}` | {BACKEND_LABEL[variant]} | {HIDING_LABEL[variant]} |"
+        for variant in VARIANTS
+    )
+    return f"""Kernel packages for the **POCO F7 / Redmi Turbo 4 Pro** (`onyx`), built for the HyperOS firmware whose stock kernel is:
 
 `{release}`
 
@@ -331,31 +362,47 @@ def release_notes(release: str, parsed: dict[str, str | None]) -> str:
 | --- | --- |
 | Kernel | Linux {parsed['version']} (AOSP GKI `{str(parsed['sha'])[:12]}`) |
 | Release string | `{release}` |
-| Root | SukiSU-Ultra |
-| Hiding | SUSFS |
+| Toolchain | Ubuntu 24.04 clang/lld/LLVM 18 |
+
+## Which package?
+
+| Package | Root | Hiding |
+| --- | --- | --- |
+{rows}
+
+* **SUSFS built in** - SUSFS is compiled into the kernel (`CONFIG_KSU_SUSFS=y`).
+* **ReSuSFS** - the kernel has no built-in SUSFS. After booting, install the
+  [ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) `v26.10.23` module; it
+  loads the SUSFS LKM itself (`susfs_guard_lkm.ko`).
+* **KernelSU-Next** has no built-in SUSFS support. Both KernelSU-Next packages
+  contain the same kernel image: use the `-susfs` one with the manager's SUSFS
+  auto-load, or the `-resusfs` one with the ReSuSFS module.
 
 ## Install with AnyKernel3
 
 > **Do not flash a repacked `boot.img`.** It cannot carry the stock AVB metadata and HyperOS may reject it. The AnyKernel3 package patches your on-device boot image and preserves its layout.
 
-Flash `{AK3_ASSET}` from the SukiSU manager's kernel-flash screen or a custom
-recovery. It detects the active slot, keeps the stock header, cmdline and
-bootconfig, and replaces only the kernel.
+Flash the package that matches the root manager you want, from that manager's
+kernel-flash screen or a custom recovery. It detects the active slot, keeps the
+stock header, cmdline and bootconfig, and replaces only the kernel.
 
-Then install the SukiSU manager APK, open it once, and verify:
+Then install the matching manager APK, open it once, and verify:
 
 ```sh
 adb shell su -c id
 ```
 
+| Root backend | Manager |
+| --- | --- |
+| SukiSU-Ultra | `com.sukisu.ultra` (v4.3.0-r2 / 41150 or newer) |
+| KernelSU | official `me.weishu.kernelsu` (v3.3.1 / 32680 or newer) |
+| KernelSU-Next | `com.rifsxd.ksunext` (v3.4.2 / 33355 or newer) |
+
 ## Assets
 
-| File | Use |
-| --- | --- |
-| `{AK3_ASSET}` | **The installable package.** |
-| `Image`, `Image.gz` | Raw kernel for advanced use; not directly flashable as a boot image. |
-| `onyx-susfs-sukisu.config` | Exact kernel config used for this build. |
-| `SHA256SUMS.txt` | Checksums. |
+Every `onyx-*-anykernel3.zip` is an installable package. The matching
+`onyx-*.config` files record the exact kernel config of each variant, and
+`SHA256SUMS.txt` has the checksums.
 
 ## Restore stock
 
@@ -367,6 +414,25 @@ Built from the stock config with only the KSU/SUSFS options changed. Restore
 the stock boot image before taking an OTA, and never relock the bootloader
 while this kernel is installed.
 """
+
+
+BACKEND_LABEL = {
+    "sukisu-susfs": "SukiSU-Ultra",
+    "sukisu-resusfs": "SukiSU-Ultra",
+    "kernelsu-susfs": "KernelSU",
+    "kernelsu-resusfs": "KernelSU",
+    "ksunext-susfs": "KernelSU-Next",
+    "ksunext-resusfs": "KernelSU-Next",
+}
+
+HIDING_LABEL = {
+    "sukisu-susfs": "SUSFS (built in)",
+    "sukisu-resusfs": "ReSuSFS (SUSFS LKM)",
+    "kernelsu-susfs": "SUSFS (built in)",
+    "kernelsu-resusfs": "ReSuSFS (SUSFS LKM)",
+    "ksunext-susfs": "SUSFS (guard LKM)",
+    "ksunext-resusfs": "ReSuSFS (SUSFS LKM)",
+}
 
 
 def ensure_clean_identity() -> None:
@@ -387,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--push", action="store_true",
                         help="commit the updated pins and push to trigger the build")
     parser.add_argument("--wait", action="store_true",
-                        help="wait for the pushed build and download the AnyKernel3 package")
+                        help="wait for the pushed build and download the AnyKernel3 packages")
     parser.add_argument("--release", metavar="TAG",
                         help="publish a GitHub release with this tag (requires --wait)")
     parser.add_argument("--dry-run", action="store_true",
@@ -416,8 +482,10 @@ def main(argv: list[str] | None = None) -> int:
     previous_release = current_stock_release()
     if release == previous_release:
         log("this is the same kernel base that is already pinned; nothing to rebuild")
-        log(f"flash the existing AnyKernel3 package: {ARTIFACTS / AK3_ASSET}")
-        log("or download it from the latest GitHub release")
+        log("flash the existing AnyKernel3 packages:")
+        for variant in VARIANTS:
+            log(f"  {ARTIFACTS / zip_name(variant)}")
+        log("or download them from the latest GitHub release")
         return 0
 
     # GKI_BRANCH looks like "android15-6.6"; the "android15-8" token in the
@@ -488,11 +556,11 @@ def main(argv: list[str] | None = None) -> int:
     run(["git", "push", "origin", "HEAD"])
 
     if not args.wait:
-        log("re-run with --wait once the workflow finishes to download the package")
+        log("re-run with --wait once the workflow finishes to download the packages")
         return 0
 
     run_id = latest_run_for(commit_head)
-    log(f"watching run {run_id} (the build takes about 15 minutes)")
+    log(f"watching run {run_id} (six variants build in parallel, about 20-40 minutes)")
     run(["gh", "run", "watch", str(run_id), "--interval", "20", "--exit-status"],
         check=False, capture=False)
     conclusion = json.loads(
@@ -504,10 +572,10 @@ def main(argv: list[str] | None = None) -> int:
         die(f"build {run_id} finished with {conclusion!r}")
 
     download_artifacts(run_id, WORK / "download")
-    log("the AnyKernel3 zip is the only package you need to flash")
+    log("each AnyKernel3 zip is a complete, self-contained package")
 
     if not args.release:
-        log("re-run with --release TAG to publish the package")
+        log("re-run with --release TAG to publish the packages")
         return 0
 
     status, _ = run_status(["gh", "release", "view", args.release])
@@ -517,12 +585,8 @@ def main(argv: list[str] | None = None) -> int:
     notes = Path(tempfile.gettempdir()) / f"onyx-{args.release}.md"
     write_text(notes, release_notes(release, parsed))
 
-    assets = [
-        ARTIFACTS / AK3_ASSET,
-        ARTIFACTS / "Image",
-        ARTIFACTS / "Image.gz",
-        ARTIFACTS / "onyx-susfs-sukisu.config",
-    ]
+    assets = [ARTIFACTS / zip_name(variant) for variant in VARIANTS]
+    assets += [ARTIFACTS / f"{variant}.config" for variant in VARIANTS]
     checksums = ARTIFACTS / "SHA256SUMS.txt"
     lines = [
         f"{sha256(path.read_bytes())}  {path.name}"
@@ -540,12 +604,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     run([
         "gh", "release", "create", args.release,
-        "--title", f"{args.release} - SukiSU-Ultra + SUSFS ({parsed['version']})",
+        "--title", f"{args.release} - onyx root + hiding kernels ({parsed['version']})",
         "--notes-file", str(notes),
         *[str(path) for path in assets],
     ])
     log(f"published https://github.com/{repo_slug}/releases/tag/{args.release}")
-    log(f"flash {ARTIFACTS / AK3_ASSET}")
+    for variant in VARIANTS:
+        log(f"flash {ARTIFACTS / zip_name(variant)}")
     return 0
 
 

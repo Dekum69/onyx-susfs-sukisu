@@ -1,9 +1,9 @@
 # onyx-susfs-sukisu
 
-SukiSU-Ultra + SUSFS kernel for the **POCO F7 / Redmi Turbo 4 Pro** (`onyx`,
+Root + hiding kernel packages for the **POCO F7 / Redmi Turbo 4 Pro** (`onyx`,
 Snapdragon 8s Gen 4 / SM8735) running **HyperOS 3 (Android 16)**.
 
-The kernel is built from the exact AOSP GKI source commit that the stock
+The kernels are built from the exact AOSP GKI source commit that the stock
 HyperOS kernel was built from, using the stock kernel config extracted from the
 device's own `boot.img`. This keeps the release string, vermagic and the GKI
 vendor-module interface compatible with the signed HyperOS vendor modules.
@@ -15,31 +15,58 @@ vendor-module interface compatible with the signed HyperOS vendor modules.
 | Firmware | HyperOS 3 EU, Android 16 |
 | Kernel | Linux 6.6.118 (AOSP GKI `e56cf6b09cca`) |
 | Release | `6.6.118-android15-8-ge56cf6b09cca-ab15511674-4k` |
-| Root | SukiSU-Ultra (`7e4784ee1282`) |
-| Hiding | SUSFS (`c7f670f57b7d`) |
+| Root | SukiSU-Ultra, KernelSU, KernelSU-Next |
+| Hiding | SUSFS (built in or LKM) and ReSuSFS |
 | Toolchain | Ubuntu 24.04 clang/lld/LLVM 18 |
+
+## Packages
+
+Every package is a complete AnyKernel3 zip. Pick one root backend and one
+hiding method:
+
+| Package | Root | Hiding |
+| --- | --- | --- |
+| `onyx-sukisu-susfs-anykernel3.zip` | SukiSU-Ultra | SUSFS built into the kernel |
+| `onyx-sukisu-resusfs-anykernel3.zip` | SukiSU-Ultra | ReSuSFS module (SUSFS LKM) |
+| `onyx-kernelsu-susfs-anykernel3.zip` | official KernelSU | SUSFS built into the kernel |
+| `onyx-kernelsu-resusfs-anykernel3.zip` | official KernelSU | ReSuSFS module (SUSFS LKM) |
+| `onyx-ksunext-susfs-anykernel3.zip` | KernelSU-Next | SUSFS guard LKM |
+| `onyx-ksunext-resusfs-anykernel3.zip` | KernelSU-Next | ReSuSFS module (SUSFS LKM) |
+
+"Built in" means `CONFIG_KSU_SUSFS=y`: no module is needed, the SUSFS
+features are enabled from the root manager.
+
+**ReSuSFS is a KernelSU module, not a kernel patch.** The `-resusfs` kernels
+have no built-in SUSFS. After booting, install the
+[ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) `v26.10.23` module; it
+downloads and loads `susfs_guard_lkm.ko` for the running KMI.
+
+**KernelSU-Next has no built-in SUSFS support.** It ships SUSFS as a guard LKM
+(`kernel/susfs/`) that its manager loads on demand, so
+`onyx-ksunext-susfs-anykernel3.zip` and `onyx-ksunext-resusfs-anykernel3.zip`
+contain the **same kernel image**; only the instructions differ:
+
+* `-susfs` - enable SUSFS auto-load in the KernelSU-Next manager.
+* `-resusfs` - install the ReSuSFS module instead.
 
 ## Quick start
 
-* **Install this kernel** - flash `onyx-susfs-sukisu-anykernel3.zip` from the
-  SukiSU manager's kernel-flash screen or a custom recovery. Do not flash a
-  repacked `boot.img`; see [Flashing](#flashing).
+* **Install a kernel** - flash one of the packages above from the matching
+  manager's kernel-flash screen or a custom recovery. Do not flash a repacked
+  `boot.img`; see [Flashing](#flashing).
 * **Update after a HyperOS firmware change** - drag the new firmware's
   `boot.img` onto `scripts\update-base.cmd`, or run
   `python scripts/update-base.py --boot new-boot.img --push --wait`. It
-  updates the pins, runs the GitHub Actions build and downloads the AnyKernel3
-  package; see [Automated re-base](#automated-re-base).
+  updates the pins, runs the GitHub Actions build and downloads all six
+  packages; see [Automated re-base](#automated-re-base).
 * **Just inspect a boot image** - `python scripts/update-base.py --boot boot.img
   --dry-run` changes nothing and prints what it detected.
 
 ## What is changed compared to stock
 
-* `CONFIG_KSU=y` and `CONFIG_KSU_SUSFS=y` (plus the default SUSFS features).
-* The SUSFS kernel patch from the `gki-android15-6.6` branch, applied with
-  fuzz because of a single context drift in `fs/proc/task_mmu.c`. The patch's
-  legacy preinit hooks in `fs/exec.c` are replaced with inert stubs: pinned
-  SukiSU-Ultra performs the preinit swap from its own syscall bridge
-  (`hook/syscall_event_bridge.c`) and no longer exports those symbols.
+The base changes are the same for every variant:
+
+* `CONFIG_KSU=y` with the selected backend integrated as `drivers/kernelsu`.
 * `CONFIG_MODULE_SIG_PROTECT=y` is kept, but the vendor protected-exports list
   is removed. This makes the GKI module protection a no-op so the signed
   HyperOS vendor modules can load.
@@ -54,28 +81,58 @@ vendor-module interface compatible with the signed HyperOS vendor modules.
 * `CONFIG_LOCALVERSION_AUTO` is disabled and `scripts/setlocalversion` is
   pinned so the release string is byte-for-byte identical to stock.
 
+The hidden-kernel variants add:
+
+* `CONFIG_KSU_SUSFS=y` and the SUSFS feature options (default `y`).
+* The SUSFS kernel patch from the `gki-android15-6.6` branch, applied with
+  fuzz because of a single context drift in `fs/proc/task_mmu.c`.
+* For SukiSU, the reviewed `patches/sukisu-susfs.patch` compatibility patch.
+  Its legacy preinit hooks in `fs/exec.c` are replaced with inert stubs:
+  pinned SukiSU-Ultra performs the preinit swap from its own syscall bridge
+  (`hook/syscall_event_bridge.c`) and no longer exports those symbols.
+* For official KernelSU, `patches/kernelsu-susfs.patch` (the SUSFS
+  `10_enable_susfs_for_ksu.patch`). It supplies the preinit hooks itself, so
+  `fs/exec.c` is left alone.
+
+The `-resusfs` variants are plain root kernels: no SUSFS patch, no
+`CONFIG_KSU_SUSFS`, and therefore no hiding code in the kernel image.
+
 Everything else (KASAN, CFI, BTF, MODVERSIONS, the stock cmdline, etc.) is
 copied from the device config.
 
 ## Building
 
-Push to `main` or run the `build` workflow manually. The GitHub Actions
-workflow uses `ubuntu-24.04`, installs clang/lld 18, adds an 8 GiB swap file
-and runs `scripts/build.sh`.
+Push to `main` or run the `build` workflow manually. The workflow is a matrix:
+one GitHub Actions job per variant, all in parallel, `ubuntu-24.04` with
+clang/lld 18 and an 8 GiB swap file.
 
-Locally on Debian/Ubuntu, the same script works:
+Locally on Debian/Ubuntu, the same script builds one variant at a time:
 
 ```sh
-INSTALL_DEPS=1 bash scripts/build.sh
+# SukiSU-Ultra + built-in SUSFS
+INSTALL_DEPS=1 ROOT_BACKEND=sukisu SUSFS_MODE=builtin bash scripts/build.sh
+
+# official KernelSU, no built-in SUSFS (ReSuSFS)
+ROOT_BACKEND=kernelsu SUSFS_MODE=none bash scripts/build.sh
+
+# KernelSU-Next
+ROOT_BACKEND=ksunext SUSFS_MODE=builtin bash scripts/build.sh
 ```
 
-Artifacts land in `artifacts/`:
+| Variable | Values | Meaning |
+| --- | --- | --- |
+| `ROOT_BACKEND` | `sukisu`, `kernelsu`, `ksunext` | which root solution is compiled in |
+| `SUSFS_MODE` | `builtin`, `none` | compile SUSFS in, or leave the kernel plain |
+| `WORK` | directory | source/build tree, defaults to `work/<variant>` |
+| `ARTIFACTS` | directory | output directory, defaults to `artifacts/<variant>` |
 
-* `Image` - raw arm64 kernel
-* `Image.gz`
-* `onyx-susfs-sukisu-anykernel3.zip`
-* `onyx-susfs-sukisu.config`
-* `kernel.release`
+Each variant gets its own work tree because the kernel source is patched
+differently. Artifacts land in `artifacts/<variant>/`:
+
+* `<variant>-anykernel3.zip` - the flashable package
+* `Image`, `Image.gz` - raw kernel
+* `<variant>.config` - exact kernel config
+* `kernel.release`, `build.log`
 
 ## Inspecting the boot image
 
@@ -100,24 +157,46 @@ metadata layout.
 > Unlock the bootloader first. Flashing a custom kernel on a locked bootloader
 > will fail. Back up the stock `boot.img` before flashing anything.
 
-Flash **only** the AnyKernel3 package, from the SukiSU manager's kernel-flash
-screen or a custom recovery:
+Flash **only** one of the AnyKernel3 packages, from the matching manager's
+kernel-flash screen or a custom recovery.
 
+| Package | Manager | Notes |
+| --- | --- | --- |
+| `onyx-sukisu-*-anykernel3.zip` | SukiSU-Ultra `com.sukisu.ultra`, manager v4.3.0-r2 (41150) or newer | |
+| `onyx-kernelsu-*-anykernel3.zip` | official KernelSU `me.weishu.kernelsu`, v3.3.1 (32680) or newer | |
+| `onyx-ksunext-*-anykernel3.zip` | KernelSU-Next `com.rifsxd.ksunext`, v3.4.2 (33355) or newer | |
+
+The installer detects the active slot, repacks the installed boot image and
+preserves the stock header, cmdline, bootconfig and device trees. Your existing
+ramdisk/root manager stays in place; only the kernel changes.
+
+After booting, verify root:
+
+```sh
+adb shell su -c id
 ```
-onyx-susfs-sukisu-anykernel3.zip
-```
 
-It detects the active slot, repacks the installed boot image and preserves the
-stock header, cmdline, bootconfig and device trees.
+### SUSFS
 
-Do **not** flash a locally repacked `boot.img`. It cannot carry the stock AVB
-metadata, and HyperOS may reject it, leaving the device in fastboot. If that
-already happened, flash your stock `boot.img`, boot once, then flash the
-AnyKernel3 package.
+On the `-susfs` packages SUSFS is already in the kernel. Enable the features
+you need from the manager.
 
-After booting, install the **SukiSU-Ultra manager APK** matching the kernel
-build (`com.sukisu.ultra`) and open it once to finish setup. SUSFS is built
-into the kernel; enable the SUSFS features you need in the manager.
+On the KernelSU-Next `-susfs` package, open the manager and enable SUSFS
+auto-load; the manager loads its guard LKM, which is how KernelSU-Next ships
+SUSFS.
+
+### ReSuSFS
+
+On the `-resusfs` packages the kernel has no SUSFS. Boot once, then install the
+ReSuSFS module (`v26.10.23`) from its releases page and open its WebUI. The
+module needs:
+
+* the `ksu_susfs` binary in `/data/adb/ksu/bin` (the installer downloads it),
+* arm64 (this device),
+* a KernelSU-family manager with modules enabled.
+
+The KernelSU-Next manager flags ReSuSFS as a low-severity risk ("possible
+bootloop"). Keep a stock `boot.img` and a recovery method handy.
 
 ### Restoring stock
 
@@ -126,6 +205,11 @@ fastboot flash boot stock-boot.img
 ```
 
 or re-flash the `boot.img` from the matching HyperOS fastboot package.
+
+Do **not** flash a locally repacked `boot.img`. It cannot carry the stock AVB
+metadata, and HyperOS may reject it, leaving the device in fastboot. If that
+already happened, flash your stock `boot.img`, boot once, then flash the
+AnyKernel3 package.
 
 ## When HyperOS updates the kernel
 
@@ -137,17 +221,17 @@ update as a re-base.
 ### Automated re-base
 
 `scripts/update-base.py` does the whole loop from one boot image. It needs
-Python 3 and an authenticated `gh`; the kernel itself is still compiled on
-GitHub Actions, so no local Linux toolchain is required:
+Python 3 and an authenticated `gh`; the kernels are still compiled on GitHub
+Actions, so no local Linux toolchain is required:
 
 ```sh
 # inspect first: extract the kernel/config, resolve the GKI commit, show the plan
 python scripts/update-base.py --boot new-boot.img
 
-# full pipeline: commit/push, wait for the build, download the AnyKernel3 zip
+# full pipeline: commit/push, wait for the build, download the six packages
 python scripts/update-base.py --boot new-boot.img --push --wait
 
-# ...and publish the package as a release
+# ...and publish the packages as a release
 python scripts/update-base.py --boot new-boot.img --push --wait --release v1.1.0
 ```
 
@@ -166,22 +250,22 @@ What it does:
 * updates `scripts/build.sh` (`KERNEL_COMMIT`, `STOCK_RELEASE`, config path),
   `sources.lock.json` and the table at the top of this README;
 * with `--push` commits those files and pushes, then `--wait` follows the
-  workflow and downloads the AnyKernel3 package (plus the raw kernel) into
-  `artifacts/`;
+  matrix workflow and downloads all six AnyKernel3 packages (plus each
+  variant's config) into `artifacts/`;
 * refuses to run if the firmware moved to a different kernel series (a port,
   not a re-base) unless `--force` is given.
 
-Only the AnyKernel3 zip is produced for flashing. The script never builds a
+Only the AnyKernel3 zips are produced for flashing. The script never builds a
 boot image, because a locally repacked one cannot reproduce the stock AVB
 metadata.
 
 If the release string is unchanged it skips the rebuild and points at the
-existing AnyKernel3 package.
+existing AnyKernel3 packages.
 
 The script cannot fix a patch that no longer applies. If the build stops in
-`apply_patch`, re-pin SUSFS / refresh the SukiSU compatibility patch as
-described below, then re-run the build. The individual steps are listed here
-in case anything needs to be done by hand:
+`apply_patch`, re-pin SUSFS / refresh the backend patch as described below,
+then re-run the build. The individual steps are listed here in case anything
+needs to be done by hand:
 
 1. Read the new release string, either from the running device:
 
@@ -223,7 +307,7 @@ in case anything needs to be done by hand:
 4. Update `sources.lock.json` and the table at the top of this README, run
    the `build` workflow (`workflow_dispatch`) and download the artifacts.
 
-5. Download the AnyKernel3 package produced by the workflow. There is nothing
+5. Download the AnyKernel3 packages produced by the workflow. There is nothing
    to repack locally, and a hand-built boot image should not be flashed.
 
 6. Restore the stock boot image before taking the OTA, then flash the new
@@ -232,9 +316,19 @@ in case anything needs to be done by hand:
    release string and the loader rejects a vermagic mismatch, which breaks
    Wi-Fi, camera and other vendor services.
 
-If a patch stops applying after a re-base, re-pin SUSFS to the matching
-`gki-android15-6.6` revision and refresh `patches/sukisu-susfs.patch` from the
-Onyx-Wild-Performance repository instead of forcing the old patch.
+If a patch stops applying after a re-base, re-pin the source it belongs to
+instead of forcing the old patch:
+
+| Patch | Belongs to | Refresh from |
+| --- | --- | --- |
+| `patches/susfs-50.patch`, `susfs.c`, `susfs.h`, `susfs_def.h` | SUSFS kernel side | the matching `gki-android*-6.*` branch of `simonpunk/susfs4ksu` |
+| `patches/sukisu-susfs.patch` | SukiSU-Ultra | `Henry-Hilton/Onyx-Wild-Performance` |
+| `patches/kernelsu-susfs.patch` | official KernelSU | `kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch` in `simonpunk/susfs4ksu` |
+
+KernelSU and KernelSU-Next are cloned (not downloaded as tarballs) because
+their `KSU_VERSION` comes from `git rev-list --count`; a tarball build would
+silently report version 16. `scripts/build.sh` verifies the version after the
+build and fails if that happened.
 
 ## Notes and limitations
 
@@ -246,14 +340,24 @@ Onyx-Wild-Performance repository instead of forcing the old patch.
   custom kernel is installed.
 * The build uses the stock HyperOS kernel config, so the kernel is large
   (KASAN/CFI/debug info are kept for ABI compatibility). This is intentional.
-* Flash only the AnyKernel3 package. A locally repacked boot image drops the
+* Flash only an AnyKernel3 package. A locally repacked boot image drops the
   stock AVB metadata and can leave the device in fastboot.
+* The official KernelSU kernel is a commit after the v3.3.1 tag: the tag's
+  kernel tree rejects the SUSFS patch. Its reported KSU version is therefore a
+  little newer than the v3.3.1 manager (32680); the manager works, and newer
+  manager builds work too.
+* SUSFS is pinned to v2.3.0 + `priority_uid_filter`. v2.4.0 only changes two
+  log calls and the version string on this branch, and its KernelSU patch does
+  not apply to the pinned KernelSU.
 * No proprietary firmware or stock boot image is stored in this repository.
 
 ## Credits
 
 * [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) - kernel-based root
+* [KernelSU](https://github.com/tiann/KernelSU) - official KernelSU
+* [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) - KernelSU fork with a SUSFS guard LKM
 * [SUSFS](https://gitlab.com/simonpunk/susfs4ksu) by simonpunk - root hiding
+* [ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) by ahmed-alnassif - SUSFS module
 * [WildKernels/AnyKernel3](https://github.com/WildKernels/AnyKernel3) - installer
 * [Onyx-Wild-Performance](https://github.com/Henry-Hilton/Onyx-Wild-Performance) -
   SukiSU/SUSFS compatibility patch and onyx AnyKernel scripts

@@ -5,7 +5,7 @@ rem kernel build on new HyperOS firmware. Extra options are forwarded to
 rem scripts\update-base.py, for example:
 rem   update-base.cmd new-boot.img --release v1.1.0
 rem
-rem Only the AnyKernel3 package is produced for flashing; no boot image is
+rem Only the AnyKernel3 packages are produced for flashing; no boot image is
 rem built locally.
 
 if "%~1"=="" goto usage
@@ -27,8 +27,8 @@ echo Usage: drag a stock boot.img onto this file, or run:
 echo   %~nx0 path\to\boot.img [--release v1.1.0]
 echo.
 echo The script extracts the kernel and config, updates the pinned GKI commit
-echo and release string, triggers the GitHub Actions build and downloads the
-echo AnyKernel3 package. Flash only that package, never a repacked boot.img.
+echo and release string, triggers the GitHub Actions build and downloads all
+echo six AnyKernel3 packages. Flash only one of those, never a repacked boot.img.
 
 :done
 echo.
