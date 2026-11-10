@@ -344,8 +344,8 @@ build and fails if that happened.
   stock AVB metadata and can leave the device in fastboot.
 * The official KernelSU kernel is a commit after the v3.3.1 tag: the tag's
   kernel tree rejects the SUSFS patch. Its reported KSU version is therefore a
-  little newer than the v3.3.1 manager (32680); the manager works, and newer
-  manager builds work too.
+  little newer than the v3.3.1 manager (kernel 32716 vs manager 32680); the
+  manager works, and newer manager builds work too.
 * SUSFS is pinned to v2.3.0 + `priority_uid_filter`. v2.4.0 only changes two
   log calls and the version string on this branch, and its KernelSU patch does
   not apply to the pinned KernelSU.

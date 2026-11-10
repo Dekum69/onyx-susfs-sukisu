@@ -406,7 +406,7 @@ verify_kernel() {
   # so make sure the backend really reported a modern version.
   local version_pattern
   case "$ROOT_BACKEND" in
-    sukisu) version_pattern='SukiSU-Ultra version: [0-9]+' ;;
+    sukisu) version_pattern='SukiSU.*version: [0-9]+' ;;
     kernelsu) version_pattern='KernelSU version: [0-9]+' ;;
     ksunext) version_pattern='KernelSU-Next version: [0-9]+' ;;
   esac
