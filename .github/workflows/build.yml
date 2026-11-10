@@ -20,22 +20,10 @@ jobs:
         include:
           - variant: sukisu-susfs
             backend: sukisu
-            mode: builtin
-          - variant: sukisu-resusfs
-            backend: sukisu
-            mode: none
           - variant: kernelsu-susfs
             backend: kernelsu
-            mode: builtin
-          - variant: kernelsu-resusfs
-            backend: kernelsu
-            mode: none
           - variant: ksunext-susfs
             backend: ksunext
-            mode: builtin
-          - variant: ksunext-resusfs
-            backend: ksunext
-            mode: none
 
     steps:
       - name: Check out sources
@@ -75,7 +63,6 @@ jobs:
         run: bash scripts/build.sh
         env:
           ROOT_BACKEND: ${{ matrix.backend }}
-          SUSFS_MODE: ${{ matrix.mode }}
 
       - name: Upload artifacts
         if: success()

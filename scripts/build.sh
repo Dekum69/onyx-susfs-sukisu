@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
 # Build one AnyKernel3 package for the POCO F7 (onyx, SM8735).
 #
-# Two environment variables select the variant:
+# ROOT_BACKEND selects the variant:
 #
-#   ROOT_BACKEND  sukisu | kernelsu | ksunext
-#                 sukisu    = SukiSU-Ultra
-#                 kernelsu = official KernelSU (tiann/KernelSU)
-#                 ksunext   = KernelSU-Next
+#   sukisu    = SukiSU-Ultra  + built-in SUSFS
+#   kernelsu  = KernelSU      + built-in SUSFS
+#   ksunext   = KernelSU-Next + SUSFS guard LKM
 #
-#   SUSFS_MODE    builtin | none
-#                 builtin = SUSFS patched into the kernel (CONFIG_KSU_SUSFS=y)
-#                 none    = plain root kernel; use the ReSuSFS module, which
-#                           loads the SUSFS LKM itself
-#
-# KernelSU-Next has no built-in SUSFS: it loads SUSFS as a guard LKM from its
-# manager.  Both ksunext variants therefore contain the same kernel image; the
-# SUSFS one is meant to be used with the manager's SUSFS auto-load, the ReSuSFS
-# one with the ReSuSFS module.
+# Every package is a SUSFS build.  KernelSU-Next has no built-in SUSFS: it
+# loads SUSFS as a guard LKM from its manager, so its kernel image is a plain
+# KernelSU-Next kernel with no SUSFS patch.
 #
 # The script is intentionally self-contained so it runs the same way on a
 # GitHub Actions Ubuntu 24.04 runner and on any Debian/Ubuntu host.
@@ -25,7 +18,6 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 ROOT_BACKEND=${ROOT_BACKEND:-sukisu}
-SUSFS_MODE=${SUSFS_MODE:-builtin}
 
 case "$ROOT_BACKEND" in
   sukisu | kernelsu | ksunext) ;;
@@ -34,20 +26,8 @@ case "$ROOT_BACKEND" in
     exit 2
     ;;
 esac
-case "$SUSFS_MODE" in
-  builtin | none) ;;
-  *)
-    echo "Unknown SUSFS_MODE '$SUSFS_MODE' (expected builtin or none)" >&2
-    exit 2
-    ;;
-esac
 
-if [ "$SUSFS_MODE" = builtin ]; then
-  SUSFS_LABEL=susfs
-else
-  SUSFS_LABEL=resusfs
-fi
-VARIANT="${ROOT_BACKEND}-${SUSFS_LABEL}"
+VARIANT="${ROOT_BACKEND}-susfs"
 
 WORK=${WORK:-"$ROOT/work/$VARIANT"}
 ARTIFACTS=${ARTIFACTS:-"$ROOT/artifacts/$VARIANT"}
@@ -59,10 +39,9 @@ AK3_SRC=${AK3_SRC:-"$WORK/AnyKernel3"}
 KERNEL_REPO=${KERNEL_REPO:-aosp-mirror/kernel_common}
 KERNEL_COMMIT=${KERNEL_COMMIT:-e56cf6b09cca2151bcee244b3d334fb68685ff57}
 SUKISU_COMMIT=${SUKISU_COMMIT:-7e4784ee1282abded0dc3bace873a600ef6d5d3f}
-KERNELSU_COMMIT=${KERNELSU_COMMIT:-28db74f6f4692e97006ce9ebd8b19b9cc614b5b7}
+KERNELSU_COMMIT=${KERNELSU_COMMIT:-dd1a0c0d3fe174dc3daf89b04c55579cb4acd6be}
 KSUNEXT_COMMIT=${KSUNEXT_COMMIT:-4c706b5938665866ebe16944a481a7b91e3396af}
 AK3_COMMIT=${AK3_COMMIT:-e1e9dce98430c5c6f231f7094a8c7f4ecaf50948}
-RESUSFS_VERSION=${RESUSFS_VERSION:-v26.10.23}
 
 # Exact release string of the stock HyperOS 3 kernel.  Matching it keeps
 # vermagic identical, which is what the signed vendor modules check.
@@ -79,36 +58,28 @@ case "$ROOT_BACKEND" in
   ksunext) KSU_NAME="KernelSU-Next" ;;
 esac
 
-# KernelSU-Next only ever loads SUSFS as a module, so "builtin" is a no-op
-# there.  Everything that depends on a compiled-in SUSFS uses this helper.
+# KernelSU-Next only ever loads SUSFS as a module.  Everything that depends on
+# a compiled-in SUSFS uses this helper.
 uses_builtin_susfs() {
-  [ "$SUSFS_MODE" = builtin ] && [ "$ROOT_BACKEND" != ksunext ]
+  [ "$ROOT_BACKEND" != ksunext ]
 }
 
 case "$VARIANT" in
   sukisu-susfs)
     KERNEL_STRING="Onyx | SukiSU-Ultra + built-in SUSFS"
-    VARIANT_NOTE="SUSFS is compiled into this kernel. Use the SukiSU-Ultra manager (v4.3.0-r2 / 41150 or newer)."
-    ;;
-  sukisu-resusfs)
-    KERNEL_STRING="Onyx | SukiSU-Ultra + ReSuSFS (SUSFS not built in)"
-    VARIANT_NOTE="No built-in SUSFS. Boot once, then install the ReSuSFS ${RESUSFS_VERSION} module; it loads the SUSFS LKM."
+    VARIANT_NOTE="SUSFS v2.4.0 is compiled into this kernel. Use the SukiSU-Ultra manager (v4.3.0-r2 / 41150 or newer)."
     ;;
   kernelsu-susfs)
     KERNEL_STRING="Onyx | KernelSU + built-in SUSFS"
-    VARIANT_NOTE="SUSFS is compiled into this kernel. Use the official KernelSU manager (v3.3.1 / 32680 or newer)."
-    ;;
-  kernelsu-resusfs)
-    KERNEL_STRING="Onyx | KernelSU + ReSuSFS (SUSFS not built in)"
-    VARIANT_NOTE="No built-in SUSFS. Boot once, then install the ReSuSFS ${RESUSFS_VERSION} module; it loads the SUSFS LKM."
+    VARIANT_NOTE="SUSFS v2.4.0 is compiled into this kernel. Use the official KernelSU manager (v3.3.1 / 32680 or newer)."
     ;;
   ksunext-susfs)
     KERNEL_STRING="Onyx | KernelSU-Next + SUSFS (guard LKM)"
-    VARIANT_NOTE="KernelSU-Next has no built-in SUSFS. Enable SUSFS auto-load in the KernelSU-Next manager, which loads its own guard LKM."
+    VARIANT_NOTE="KernelSU-Next has no built-in SUSFS: enable SUSFS auto-load in its manager, which loads the SUSFS guard LKM."
     ;;
-  ksunext-resusfs)
-    KERNEL_STRING="Onyx | KernelSU-Next + ReSuSFS (guard LKM)"
-    VARIANT_NOTE="Same kernel as onyx-ksunext-susfs: KernelSU-Next has no built-in SUSFS. Install the ReSuSFS ${RESUSFS_VERSION} module instead of the manager's auto-load."
+  *)
+    echo "Unhandled variant $VARIANT" >&2
+    exit 2
     ;;
 esac
 
@@ -174,7 +145,7 @@ prepare_kernel() {
       echo "clean tree.  Remove $WORK or set WORK to a fresh directory." >&2
       exit 1
     fi
-    log "SUSFS is not compiled in for this variant"
+    log "KernelSU-Next uses its SUSFS guard LKM; the kernel stays unpatched"
     return
   fi
 
@@ -249,11 +220,7 @@ prepare_ksu() {
   esac
 
   if ! uses_builtin_susfs; then
-    if [ "$ROOT_BACKEND" = ksunext ] && [ "$SUSFS_MODE" = builtin ]; then
-      log "KernelSU-Next has no built-in SUSFS; this build uses its guard LKM"
-    else
-      log "No KernelSU-side SUSFS patch for this variant"
-    fi
+    log "KernelSU-Next has no built-in SUSFS; this build uses its guard LKM"
     return
   fi
 
@@ -454,10 +421,16 @@ for token, value in (("@VARIANT@", variant),
 pathlib.Path(dst).write_text(text)
 PY
 
+  local susfs_line
+  if uses_builtin_susfs; then
+    susfs_line="built-in (CONFIG_KSU_SUSFS=y, SUSFS v2.4.0)"
+  else
+    susfs_line="not built in (kernel loads a SUSFS guard LKM)"
+  fi
   cat >"$AK3_SRC/onyx-variant.txt" <<EOF
 variant:        $VARIANT
 root backend:   $KSU_NAME
-SUSFS:          $([ "$SUSFS_MODE" = builtin ] && echo "built-in (CONFIG_KSU_SUSFS=y)" || echo "not built in")
+SUSFS:          $susfs_line
 kernel release: $STOCK_RELEASE
 note:           $VARIANT_NOTE
 EOF
@@ -477,7 +450,7 @@ main() {
     install_deps
   fi
 
-  log "Variant ${VARIANT}: ${KSU_NAME}, SUSFS mode ${SUSFS_MODE}"
+  log "Variant ${VARIANT}: ${KSU_NAME}, SUSFS $([ uses_builtin_susfs ] && echo built-in || echo guard-LKM)"
 
   prepare_kernel
   prepare_ksu

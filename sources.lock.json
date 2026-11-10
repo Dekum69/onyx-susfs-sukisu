@@ -22,34 +22,16 @@
       "package": "onyx-sukisu-susfs-anykernel3.zip"
     },
     {
-      "name": "sukisu-resusfs",
-      "backend": "sukisu",
-      "susfs": "none (ReSuSFS module)",
-      "package": "onyx-sukisu-resusfs-anykernel3.zip"
-    },
-    {
       "name": "kernelsu-susfs",
       "backend": "kernelsu",
       "susfs": "built-in",
       "package": "onyx-kernelsu-susfs-anykernel3.zip"
     },
     {
-      "name": "kernelsu-resusfs",
-      "backend": "kernelsu",
-      "susfs": "none (ReSuSFS module)",
-      "package": "onyx-kernelsu-resusfs-anykernel3.zip"
-    },
-    {
       "name": "ksunext-susfs",
       "backend": "ksunext",
       "susfs": "guard LKM (KernelSU-Next manager)",
       "package": "onyx-ksunext-susfs-anykernel3.zip"
-    },
-    {
-      "name": "ksunext-resusfs",
-      "backend": "ksunext",
-      "susfs": "guard LKM (ReSuSFS module)",
-      "package": "onyx-ksunext-resusfs-anykernel3.zip"
     }
   ],
   "sukisu": {
@@ -61,10 +43,10 @@
   },
   "kernelsu": {
     "repo": "https://github.com/tiann/KernelSU",
-    "commit": "28db74f6f4692e97006ce9ebd8b19b9cc614b5b7",
-    "version": "official KernelSU main after v3.3.1 (manager 32680 or newer)",
+    "commit": "dd1a0c0d3fe174dc3daf89b04c55579cb4acd6be",
+    "version": "official KernelSU main (Nov 9 2026; manager 32680 or newer)",
     "patch": "patches/kernelsu-susfs.patch",
-    "version_note": "The newest v3.3.1 tag commit rejects the SUSFS KernelSU patch; this commit applies it cleanly. KSU_VERSION comes from the git history, so the source is cloned, not downloaded as a tarball."
+    "version_note": "Pinned to the commit that the current SUSFS KernelSU patch is synced with; earlier revisions reject it. KSU_VERSION comes from the git history, so the source is cloned, not downloaded as a tarball."
   },
   "ksunext": {
     "repo": "https://github.com/KernelSU-Next/KernelSU-Next",
@@ -76,14 +58,8 @@
   "susfs": {
     "repo": "https://gitlab.com/simonpunk/susfs4ksu",
     "branch": "gki-android15-6.6",
-    "commit": "c7f670f57b7d43d75066b6657f8aee9cdf580d96",
-    "version": "SUSFS v2.3.0 (priority-uid-filter build)"
-  },
-  "resusfs": {
-    "repo": "https://github.com/ahmed-alnassif/ReSuSFS",
-    "version": "v26.10.23",
-    "asset": "https://github.com/ahmed-alnassif/ReSuSFS/releases/download/v26.10.23/ReSuSFS.zip",
-    "note": "ReSuSFS is a KernelSU module, not a kernel patch. It uses a built-in SUSFS or loads the SUSFS LKM (susfs_guard_lkm.ko from inforcqb/susfs4ksu-lkm)."
+    "commit": "ec03d0c73b821afa1d5037d6d493216f59744fcb",
+    "version": "SUSFS v2.4.0"
   },
   "anykernel": {
     "repo": "https://github.com/WildKernels/AnyKernel3",
@@ -91,8 +67,8 @@
   },
   "patches": {
     "sukisu-susfs.patch": "https://github.com/Henry-Hilton/Onyx-Wild-Performance/blob/main/patches/sukisu.patch",
-    "kernelsu-susfs.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/c7f670f57b7d43d75066b6657f8aee9cdf580d96/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch",
-    "susfs-50.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/c7f670f57b7d43d75066b6657f8aee9cdf580d96/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch",
-    "credit": "SUSFS by simonpunk; SukiSU-Ultra by the SukiSU team; KernelSU by tiann; KernelSU-Next by the KernelSU-Next team; ReSuSFS by ahmed-alnassif; SukiSU/SUSFS compatibility patch reviewed by Henry-Hilton (Onyx Wild Performance)."
+    "kernelsu-susfs.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/ec03d0c73b821afa1d5037d6d493216f59744fcb/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch",
+    "susfs-50.patch": "https://gitlab.com/simonpunk/susfs4ksu/-/blob/ec03d0c73b821afa1d5037d6d493216f59744fcb/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch",
+    "credit": "SUSFS by simonpunk; SukiSU-Ultra by the SukiSU team; KernelSU by tiann; KernelSU-Next by the KernelSU-Next team; SukiSU/SUSFS compatibility patch reviewed by Henry-Hilton (Onyx Wild Performance)."
   }
 }

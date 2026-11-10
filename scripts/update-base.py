@@ -11,7 +11,7 @@ new firmware, all three may change.  This script automates the whole loop:
      README.md;
   4. optionally commit/push (which triggers the GitHub Actions build), wait
      for it and download the artifacts;
-  5. optionally publish the six AnyKernel3 packages as a GitHub release.
+  5. optionally publish the three AnyKernel3 packages as a GitHub release.
 
 Only the AnyKernel3 zips are produced for flashing.  A locally repacked
 boot.img cannot reproduce the stock AVB metadata and HyperOS may reject it, so
@@ -61,11 +61,8 @@ WORKFLOW = "build.yml"
 # One GitHub Actions matrix job and one AnyKernel3 zip per variant.
 VARIANTS = (
     "sukisu-susfs",
-    "sukisu-resusfs",
     "kernelsu-susfs",
-    "kernelsu-resusfs",
     "ksunext-susfs",
-    "ksunext-resusfs",
 )
 
 
@@ -370,13 +367,10 @@ def release_notes(release: str, parsed: dict[str, str | None]) -> str:
 | --- | --- | --- |
 {rows}
 
-* **SUSFS built in** - SUSFS is compiled into the kernel (`CONFIG_KSU_SUSFS=y`).
-* **ReSuSFS** - the kernel has no built-in SUSFS. After booting, install the
-  [ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) `v26.10.23` module; it
-  loads the SUSFS LKM itself (`susfs_guard_lkm.ko`).
-* **KernelSU-Next** has no built-in SUSFS support. Both KernelSU-Next packages
-  contain the same kernel image: use the `-susfs` one with the manager's SUSFS
-  auto-load, or the `-resusfs` one with the ReSuSFS module.
+* **SUSFS built in** - SUSFS v2.4.0 is compiled into the kernel
+  (`CONFIG_KSU_SUSFS=y`).
+* **KernelSU-Next** has no built-in SUSFS support. Enable SUSFS auto-load in
+  its manager, which loads the SUSFS guard LKM; the kernel itself is unpatched.
 
 ## Install with AnyKernel3
 
@@ -418,20 +412,14 @@ while this kernel is installed.
 
 BACKEND_LABEL = {
     "sukisu-susfs": "SukiSU-Ultra",
-    "sukisu-resusfs": "SukiSU-Ultra",
     "kernelsu-susfs": "KernelSU",
-    "kernelsu-resusfs": "KernelSU",
     "ksunext-susfs": "KernelSU-Next",
-    "ksunext-resusfs": "KernelSU-Next",
 }
 
 HIDING_LABEL = {
     "sukisu-susfs": "SUSFS (built in)",
-    "sukisu-resusfs": "ReSuSFS (SUSFS LKM)",
     "kernelsu-susfs": "SUSFS (built in)",
-    "kernelsu-resusfs": "ReSuSFS (SUSFS LKM)",
     "ksunext-susfs": "SUSFS (guard LKM)",
-    "ksunext-resusfs": "ReSuSFS (SUSFS LKM)",
 }
 
 
@@ -560,7 +548,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     run_id = latest_run_for(commit_head)
-    log(f"watching run {run_id} (six variants build in parallel, about 20-40 minutes)")
+    log(f"watching run {run_id} (three variants build in parallel, about 20-40 minutes)")
     run(["gh", "run", "watch", str(run_id), "--interval", "20", "--exit-status"],
         check=False, capture=False)
     conclusion = json.loads(

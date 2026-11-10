@@ -16,38 +16,27 @@ vendor-module interface compatible with the signed HyperOS vendor modules.
 | Kernel | Linux 6.6.118 (AOSP GKI `e56cf6b09cca`) |
 | Release | `6.6.118-android15-8-ge56cf6b09cca-ab15511674-4k` |
 | Root | SukiSU-Ultra, KernelSU, KernelSU-Next |
-| Hiding | SUSFS (built in or LKM) and ReSuSFS |
+| Hiding | SUSFS v2.4.0 (built in, or guard LKM on KernelSU-Next) |
 | Toolchain | Ubuntu 24.04 clang/lld/LLVM 18 |
 
 ## Packages
 
-Every package is a complete AnyKernel3 zip. Pick one root backend and one
-hiding method:
+Every package is a complete AnyKernel3 zip. Pick the one that matches the root
+manager you want:
 
 | Package | Root | Hiding |
 | --- | --- | --- |
-| `onyx-sukisu-susfs-anykernel3.zip` | SukiSU-Ultra | SUSFS built into the kernel |
-| `onyx-sukisu-resusfs-anykernel3.zip` | SukiSU-Ultra | ReSuSFS module (SUSFS LKM) |
-| `onyx-kernelsu-susfs-anykernel3.zip` | official KernelSU | SUSFS built into the kernel |
-| `onyx-kernelsu-resusfs-anykernel3.zip` | official KernelSU | ReSuSFS module (SUSFS LKM) |
+| `onyx-sukisu-susfs-anykernel3.zip` | SukiSU-Ultra | SUSFS v2.4.0 built into the kernel |
+| `onyx-kernelsu-susfs-anykernel3.zip` | official KernelSU | SUSFS v2.4.0 built into the kernel |
 | `onyx-ksunext-susfs-anykernel3.zip` | KernelSU-Next | SUSFS guard LKM |
-| `onyx-ksunext-resusfs-anykernel3.zip` | KernelSU-Next | ReSuSFS module (SUSFS LKM) |
 
 "Built in" means `CONFIG_KSU_SUSFS=y`: no module is needed, the SUSFS
 features are enabled from the root manager.
 
-**ReSuSFS is a KernelSU module, not a kernel patch.** The `-resusfs` kernels
-have no built-in SUSFS. After booting, install the
-[ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) `v26.10.23` module; it
-downloads and loads `susfs_guard_lkm.ko` for the running KMI.
-
 **KernelSU-Next has no built-in SUSFS support.** It ships SUSFS as a guard LKM
-(`kernel/susfs/`) that its manager loads on demand, so
-`onyx-ksunext-susfs-anykernel3.zip` and `onyx-ksunext-resusfs-anykernel3.zip`
-contain the **same kernel image**; only the instructions differ:
-
-* `-susfs` - enable SUSFS auto-load in the KernelSU-Next manager.
-* `-resusfs` - install the ReSuSFS module instead.
+(`kernel/susfs/`) that its manager loads on demand. The `onyx-ksunext-susfs`
+kernel image is therefore unpatched; enable SUSFS auto-load in the
+KernelSU-Next manager after flashing.
 
 ## Quick start
 
@@ -57,7 +46,7 @@ contain the **same kernel image**; only the instructions differ:
 * **Update after a HyperOS firmware change** - drag the new firmware's
   `boot.img` onto `scripts\update-base.cmd`, or run
   `python scripts/update-base.py --boot new-boot.img --push --wait`. It
-  updates the pins, runs the GitHub Actions build and downloads all six
+  updates the pins, runs the GitHub Actions build and downloads all three
   packages; see [Automated re-base](#automated-re-base).
 * **Just inspect a boot image** - `python scripts/update-base.py --boot boot.img
   --dry-run` changes nothing and prints what it detected.
@@ -81,7 +70,7 @@ The base changes are the same for every variant:
 * `CONFIG_LOCALVERSION_AUTO` is disabled and `scripts/setlocalversion` is
   pinned so the release string is byte-for-byte identical to stock.
 
-The hidden-kernel variants add:
+The SukiSU-Ultra and official KernelSU kernels add:
 
 * `CONFIG_KSU_SUSFS=y` and the SUSFS feature options (default `y`).
 * The SUSFS kernel patch from the `gki-android15-6.6` branch, applied with
@@ -94,8 +83,8 @@ The hidden-kernel variants add:
   `10_enable_susfs_for_ksu.patch`). It supplies the preinit hooks itself, so
   `fs/exec.c` is left alone.
 
-The `-resusfs` variants are plain root kernels: no SUSFS patch, no
-`CONFIG_KSU_SUSFS`, and therefore no hiding code in the kernel image.
+The KernelSU-Next kernel is plain: no SUSFS patch and no `CONFIG_KSU_SUSFS`,
+because that backend loads SUSFS from its manager as a guard LKM.
 
 Everything else (KASAN, CFI, BTF, MODVERSIONS, the stock cmdline, etc.) is
 copied from the device config.
@@ -110,19 +99,18 @@ Locally on Debian/Ubuntu, the same script builds one variant at a time:
 
 ```sh
 # SukiSU-Ultra + built-in SUSFS
-INSTALL_DEPS=1 ROOT_BACKEND=sukisu SUSFS_MODE=builtin bash scripts/build.sh
+INSTALL_DEPS=1 ROOT_BACKEND=sukisu bash scripts/build.sh
 
-# official KernelSU, no built-in SUSFS (ReSuSFS)
-ROOT_BACKEND=kernelsu SUSFS_MODE=none bash scripts/build.sh
+# official KernelSU + built-in SUSFS
+ROOT_BACKEND=kernelsu bash scripts/build.sh
 
-# KernelSU-Next
-ROOT_BACKEND=ksunext SUSFS_MODE=builtin bash scripts/build.sh
+# KernelSU-Next (SUSFS guard LKM)
+ROOT_BACKEND=ksunext bash scripts/build.sh
 ```
 
 | Variable | Values | Meaning |
 | --- | --- | --- |
 | `ROOT_BACKEND` | `sukisu`, `kernelsu`, `ksunext` | which root solution is compiled in |
-| `SUSFS_MODE` | `builtin`, `none` | compile SUSFS in, or leave the kernel plain |
 | `WORK` | directory | source/build tree, defaults to `work/<variant>` |
 | `ARTIFACTS` | directory | output directory, defaults to `artifacts/<variant>` |
 
@@ -162,9 +150,9 @@ kernel-flash screen or a custom recovery.
 
 | Package | Manager | Notes |
 | --- | --- | --- |
-| `onyx-sukisu-*-anykernel3.zip` | SukiSU-Ultra `com.sukisu.ultra`, manager v4.3.0-r2 (41150) or newer | |
-| `onyx-kernelsu-*-anykernel3.zip` | official KernelSU `me.weishu.kernelsu`, v3.3.1 (32680) or newer | |
-| `onyx-ksunext-*-anykernel3.zip` | KernelSU-Next `com.rifsxd.ksunext`, v3.4.2 (33355) or newer | |
+| `onyx-sukisu-susfs-anykernel3.zip` | SukiSU-Ultra `com.sukisu.ultra`, manager v4.3.0-r2 (41150) or newer | SUSFS v2.4.0 built in |
+| `onyx-kernelsu-susfs-anykernel3.zip` | official KernelSU `me.weishu.kernelsu`, v3.3.1 (32680) or newer | SUSFS v2.4.0 built in |
+| `onyx-ksunext-susfs-anykernel3.zip` | KernelSU-Next `com.rifsxd.ksunext`, v3.4.2 (33355) or newer | enable SUSFS auto-load in the manager |
 
 The installer detects the active slot, repacks the installed boot image and
 preserves the stock header, cmdline, bootconfig and device trees. Your existing
@@ -178,25 +166,11 @@ adb shell su -c id
 
 ### SUSFS
 
-On the `-susfs` packages SUSFS is already in the kernel. Enable the features
-you need from the manager.
+On the SukiSU-Ultra and official KernelSU packages SUSFS v2.4.0 is already in
+the kernel. Enable the features you need from the manager.
 
-On the KernelSU-Next `-susfs` package, open the manager and enable SUSFS
-auto-load; the manager loads its guard LKM, which is how KernelSU-Next ships
-SUSFS.
-
-### ReSuSFS
-
-On the `-resusfs` packages the kernel has no SUSFS. Boot once, then install the
-ReSuSFS module (`v26.10.23`) from its releases page and open its WebUI. The
-module needs:
-
-* the `ksu_susfs` binary in `/data/adb/ksu/bin` (the installer downloads it),
-* arm64 (this device),
-* a KernelSU-family manager with modules enabled.
-
-The KernelSU-Next manager flags ReSuSFS as a low-severity risk ("possible
-bootloop"). Keep a stock `boot.img` and a recovery method handy.
+On the KernelSU-Next package, open the manager and enable SUSFS auto-load; the
+manager loads its guard LKM, which is how KernelSU-Next ships SUSFS.
 
 ### Restoring stock
 
@@ -228,7 +202,7 @@ Actions, so no local Linux toolchain is required:
 # inspect first: extract the kernel/config, resolve the GKI commit, show the plan
 python scripts/update-base.py --boot new-boot.img
 
-# full pipeline: commit/push, wait for the build, download the six packages
+# full pipeline: commit/push, wait for the build, download the three packages
 python scripts/update-base.py --boot new-boot.img --push --wait
 
 # ...and publish the packages as a release
@@ -250,7 +224,7 @@ What it does:
 * updates `scripts/build.sh` (`KERNEL_COMMIT`, `STOCK_RELEASE`, config path),
   `sources.lock.json` and the table at the top of this README;
 * with `--push` commits those files and pushes, then `--wait` follows the
-  matrix workflow and downloads all six AnyKernel3 packages (plus each
+  matrix workflow and downloads all three AnyKernel3 packages (plus each
   variant's config) into `artifacts/`;
 * refuses to run if the firmware moved to a different kernel series (a port,
   not a re-base) unless `--force` is given.
@@ -346,9 +320,9 @@ build and fails if that happened.
   kernel tree rejects the SUSFS patch. Its reported KSU version is therefore a
   little newer than the v3.3.1 manager (kernel 32716 vs manager 32680); the
   manager works, and newer manager builds work too.
-* SUSFS is pinned to v2.3.0 + `priority_uid_filter`. v2.4.0 only changes two
-  log calls and the version string on this branch, and its KernelSU patch does
-  not apply to the pinned KernelSU.
+* SUSFS is pinned to v2.4.0 (`ec03d0c`). Compared to v2.3.0 on this branch it
+  changes the version string and the rate limiting of two log calls; the
+  kernel 50-patch and `susfs_def.h` are identical.
 * No proprietary firmware or stock boot image is stored in this repository.
 
 ## Credits
@@ -357,7 +331,6 @@ build and fails if that happened.
 * [KernelSU](https://github.com/tiann/KernelSU) - official KernelSU
 * [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) - KernelSU fork with a SUSFS guard LKM
 * [SUSFS](https://gitlab.com/simonpunk/susfs4ksu) by simonpunk - root hiding
-* [ReSuSFS](https://github.com/ahmed-alnassif/ReSuSFS) by ahmed-alnassif - SUSFS module
 * [WildKernels/AnyKernel3](https://github.com/WildKernels/AnyKernel3) - installer
 * [Onyx-Wild-Performance](https://github.com/Henry-Hilton/Onyx-Wild-Performance) -
   SukiSU/SUSFS compatibility patch and onyx AnyKernel scripts
