@@ -64,46 +64,47 @@ Artifacts land in `artifacts/`:
 * `onyx-susfs-sukisu.config`
 * `kernel.release`
 
-## Repacking boot.img
+## Inspecting the boot image
 
 The stock `boot.img` is a kernel-only Android boot header v4 image: the ramdisk
-lives in `init_boot.img` and `ramdisk_size` is 0. `tools/bootimg.py` replaces
-the kernel while preserving the header page and the partition size:
+lives in `init_boot.img` and `ramdisk_size` is 0. `tools/bootimg.py` can read
+it and extract the kernel and the embedded config:
 
 ```sh
 python3 tools/bootimg.py info stock-boot.img
-python3 tools/bootimg.py repack \
-  --stock stock-boot.img \
-  --kernel artifacts/Image \
-  --output boot-susfs.img
+python3 tools/bootimg.py extract-kernel stock-boot.img stock-Image
+python3 tools/bootimg.py extract-config stock-boot.img stock.config
 ```
 
-The stock image has AVB metadata appended after the kernel. Repacking drops it:
-a modified kernel invalidates that metadata anyway, and an unlocked bootloader
-boots without it. The output image is padded to the original 96 MiB partition
-size so no stale AVB footer is left behind.
+The tool also has a `repack` subcommand, but it is **not** a supported install
+path. A repacked image loses the stock AVB metadata and HyperOS can refuse to
+boot it, dropping the device to fastboot. Use the AnyKernel3 package instead:
+it patches the on-device boot image and keeps the stock header, cmdline and
+metadata layout.
 
 ## Flashing
 
 > Unlock the bootloader first. Flashing a custom kernel on a locked bootloader
 > will fail. Back up the stock `boot.img` before flashing anything.
 
-```sh
-adb reboot bootloader
-fastboot flash boot boot-susfs.img
-fastboot reboot
+Flash **only** the AnyKernel3 package, from the SukiSU manager's kernel-flash
+screen or a custom recovery:
+
+```
+onyx-susfs-sukisu-anykernel3.zip
 ```
 
-On A/B devices `fastboot flash boot` targets the active slot. To be explicit,
-use `boot_a` or `boot_b` for the slot that is currently active.
+It detects the active slot, repacks the installed boot image and preserves the
+stock header, cmdline, bootconfig and device trees.
+
+Do **not** flash a locally repacked `boot.img`. It cannot carry the stock AVB
+metadata, and HyperOS may reject it, leaving the device in fastboot. If that
+already happened, flash your stock `boot.img`, boot once, then flash the
+AnyKernel3 package.
 
 After booting, install the **SukiSU-Ultra manager APK** matching the kernel
 build (`com.sukisu.ultra`) and open it once to finish setup. SUSFS is built
 into the kernel; enable the SUSFS features you need in the manager.
-
-The AnyKernel3 zip can be flashed later with a kernel manager or a custom
-recovery. It detects the active slot, locates `boot_a`/`boot_b` and preserves
-the installed ramdisk, bootconfig and device trees.
 
 ### Restoring stock
 
@@ -130,16 +131,16 @@ GitHub Actions, so no local Linux toolchain is required:
 # inspect first: extract the kernel/config, resolve the GKI commit, show the plan
 python scripts/update-base.py --boot new-boot.img
 
-# full pipeline: commit/push, wait for the build, download and repack
-python scripts/update-base.py --boot new-boot.img --push --wait --repack
+# full pipeline: commit/push, wait for the build, download the AnyKernel3 zip
+python scripts/update-base.py --boot new-boot.img --push --wait
 
-# ...and publish it as a release
-python scripts/update-base.py --boot new-boot.img --push --wait --repack --release v1.1.0
+# ...and publish the package as a release
+python scripts/update-base.py --boot new-boot.img --push --wait --release v1.1.0
 ```
 
 On Windows, drag the new `boot.img` onto `scripts\update-base.cmd`: it shows
 the plan, asks for confirmation, then runs the full pipeline (commit, CI
-build, download, repack). Extra options are forwarded, for example
+build, download, package). Extra options are forwarded, for example
 `update-base.cmd new-boot.img --release v1.1.0`.
 
 What it does:
@@ -152,13 +153,17 @@ What it does:
 * updates `scripts/build.sh` (`KERNEL_COMMIT`, `STOCK_RELEASE`, config path),
   `sources.lock.json` and the table at the top of this README;
 * with `--push` commits those files and pushes, then `--wait` follows the
-  workflow and downloads the artifacts; `--repack` writes
-  `artifacts/boot-susfs-onyx.img` from the new stock image;
+  workflow and downloads the AnyKernel3 package (plus the raw kernel) into
+  `artifacts/`;
 * refuses to run if the firmware moved to a different kernel series (a port,
   not a re-base) unless `--force` is given.
 
-If the release string is unchanged it skips the rebuild and only repacks the
-given boot image with the existing `artifacts/Image`.
+Only the AnyKernel3 zip is produced for flashing. The script never builds a
+boot image, because a locally repacked one cannot reproduce the stock AVB
+metadata.
+
+If the release string is unchanged it skips the rebuild and points at the
+existing AnyKernel3 package.
 
 The script cannot fix a patch that no longer applies. If the build stops in
 `apply_patch`, re-pin SUSFS / refresh the SukiSU compatibility patch as
@@ -205,19 +210,14 @@ in case anything needs to be done by hand:
 4. Update `sources.lock.json` and the table at the top of this README, run
    the `build` workflow (`workflow_dispatch`) and download the artifacts.
 
-5. Repack the new firmware's own `boot.img` - never reuse an older one, since
-   header fields, cmdline and kernel offsets can change:
-
-   ```sh
-   python3 tools/bootimg.py repack \
-     --stock new-boot.img --kernel artifacts/Image --output boot-susfs-new.img
-   ```
+5. Download the AnyKernel3 package produced by the workflow. There is nothing
+   to repack locally, and a hand-built boot image should not be flashed.
 
 6. Restore the stock boot image before taking the OTA, then flash the new
-   image. Flashing an old kernel onto newer firmware is not supported: the
-   vendor modules in `vendor_dlkm` are rebuilt with the new release string and
-   the loader rejects a vermagic mismatch, which breaks Wi-Fi, camera and
-   other vendor services.
+   AnyKernel3 package. Flashing an old kernel onto newer firmware is not
+   supported: the vendor modules in `vendor_dlkm` are rebuilt with the new
+   release string and the loader rejects a vermagic mismatch, which breaks
+   Wi-Fi, camera and other vendor services.
 
 If a patch stops applying after a re-base, re-pin SUSFS to the matching
 `gki-android15-6.6` revision and refresh `patches/sukisu-susfs.patch` from the
@@ -233,6 +233,8 @@ Onyx-Wild-Performance repository instead of forcing the old patch.
   custom kernel is installed.
 * The build uses the stock HyperOS kernel config, so the kernel is large
   (KASAN/CFI/debug info are kept for ABI compatibility). This is intentional.
+* Flash only the AnyKernel3 package. A locally repacked boot image drops the
+  stock AVB metadata and can leave the device in fastboot.
 * No proprietary firmware or stock boot image is stored in this repository.
 
 ## Credits

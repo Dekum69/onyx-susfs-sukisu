@@ -7,15 +7,17 @@ implemented:
   info            print header/layout information
   extract-kernel  dump the kernel payload
   extract-config  extract the embedded IKCONFIG (gzip) blob
-  repack          replace the kernel in a kernel-only boot image
+  repack          replace the kernel in a kernel-only boot image (debug only)
 
 The stock onyx boot image is an Android boot header v4 image with
 ramdisk_size == 0 and signature_size == 0 (the ramdisk lives in
 init_boot.img).  Repacking therefore only has to replace the kernel and
-keep the partition size, which is what this tool does.  AVB metadata that
-was appended to the stock image is intentionally dropped: a modified
-kernel invalidates it anyway and an unlocked bootloader does not require
-it.
+keep the partition size.
+
+WARNING: a repacked image cannot carry the stock AVB metadata, and HyperOS
+may refuse to boot it (the device drops to fastboot).  Repack is kept for
+inspection and experiments only.  Install kernels with the AnyKernel3
+package, which patches the on-device boot image and preserves its layout.
 """
 
 from __future__ import annotations
@@ -234,7 +236,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("output", nargs="?")
     p.set_defaults(func=cmd_extract_config)
 
-    p = sub.add_parser("repack", help="replace the kernel in a boot image")
+    p = sub.add_parser(
+        "repack",
+        help="replace the kernel in a boot image (debug only; do not flash)",
+        description=(
+            "Replace the kernel in a kernel-only boot image. The result has no "
+            "AVB metadata and HyperOS may refuse to boot it; use AnyKernel3 to "
+            "install kernels."
+        ),
+    )
     p.add_argument("--stock", required=True, help="stock boot.img")
     p.add_argument("--kernel", required=True, help="new arm64 Image")
     p.add_argument("--output", required=True, help="output boot image")
